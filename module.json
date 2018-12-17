@@ -1,0 +1,12 @@
+{
+	"disableAutoUpdate": false,
+	"name": "auto-nego",
+	"author": "Owyn",
+	"description": "Automatically accepts or declines Trade Broker negotiations.",
+	"options": {
+		"niceName": "Auto-Nego",
+		"guiName": "Auto Nego"
+	},
+	"servers": ["https://raw.githubusercontent.com/Owyn/auto-nego/master/"],
+	"supportUrl": "https://github.com/Owyn/auto-nego/issues"
+}

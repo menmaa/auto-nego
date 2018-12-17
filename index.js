@@ -1,20 +1,24 @@
-const AUTO_ACCEPT_THRESHOLD		= 1,			// Automatically accepts offers for *equal or more than* the specified amount (0 to disable).
-	AUTO_REJECT_THRESHOLD		= 0.75,			/*	Automatically declines offers for *less* than the specified amount (or AUTO_ACCEPT_THRESHOLD).
-													Example: 0.75 will decline offers for less than 75% of the asking price (0 to disable).
+const AUTO_ACCEPT_THRESHOLD		= 100,			// Automatically accepts offers for *equal or more than* the specified amount (0 to disable).
+	AUTO_REJECT_THRESHOLD		= 80,			/*	Automatically declines offers for *less* than the specified amount (or AUTO_ACCEPT_THRESHOLD).
+													Example: 75 will decline offers for less than 75% of the asking price (0 to disable).
 												*/
+	AUTO_REJECT_TROLLS			= 200,			// reject deals with offer price more than % of the asked price
+	AUTO_REJECT_CHANCE			= 15,			// only bots reject everything, and we'r humans... right?
 	UNATTENDED_MANUAL_NEGOTIATE	= false,		/* Allows the user to click the Accept button once, and the negotiation will be handled automatically.
 													Warning: Use this at your own risk. Recommended to set Bargain to a seperate chat tab to prevent
 													clicking accidentally.
 												*/
 	DELAY_ACTIONS 				= true,			// Simulate human-like response times.
-	ACTION_DELAY_LONG_MS		= [1200, 2600],	// [Min, Max]
-	ACTION_DELAY_SHORT_MS		= [400, 800]	// [Min, Max]
+	ACTION_DELAY_LONG_MS		= [3643, 6712],	// [Min, Max]
+	ACTION_DELAY_SHORT_MS		= [717, 1348],	// [Min, Max]
+	ACTION_DELAY_TIMEOUT_MS		= [22313, 31324],// [Min, Max]
+	ACTION_DELAY_TIMEOUT_SHORT_MS=[12432,15236]	// [Min, Max]
 
 const TYPE_NEGOTIATION_PENDING = 35,
 	TYPE_NEGOTIATION = 36
 
-module.exports = function AutoNegotiate(mod) {
-	const {command} = mod.require
+module.exports = function AutoNegotiate(dispatch) {
+	const command = dispatch.command
 
 	let recentDeals = UNATTENDED_MANUAL_NEGOTIATE ? {} : null,
 		pendingDeals = [],
@@ -23,7 +27,7 @@ module.exports = function AutoNegotiate(mod) {
 		actionTimeout = null,
 		cancelTimeout = null
 
-	mod.hook('S_TRADE_BROKER_DEAL_SUGGESTED', 1, event => {
+	dispatch.hook('S_TRADE_BROKER_DEAL_SUGGESTED', 1, {order: 100, filter: {fake: null}}, event => {
 		// Remove old deals that haven't been processed yet
 		for(let i = 0; i < pendingDeals.length; i++) {
 			let deal = pendingDeals[i]
@@ -42,27 +46,28 @@ module.exports = function AutoNegotiate(mod) {
 			if(recentDeals[dealId]) clearTimeout(recentDeals[dealId].timeout)
 
 			recentDeals[dealId] = event
-			recentDeals[dealId].timeout = setTimeout(() => { delete recentDeals[dealId] }, 30000)
+			recentDeals[dealId].timeout = setTimeout(() => { delete recentDeals[dealId] }, rng(ACTION_DELAY_TIMEOUT_MS))
 		}
 	})
 
-	mod.hook('S_TRADE_BROKER_REQUEST_DEAL_RESULT', 1, event => {
+	dispatch.hook('S_TRADE_BROKER_REQUEST_DEAL_RESULT', 1, event => {
 		if(currentDeal) {
 			if(!event.ok) endDeal()
-
+			//else {command.message('Deal successful')}
+		
 			return false
 		}
 	})
 
-	mod.hook('S_TRADE_BROKER_DEAL_INFO_UPDATE', 1, event => {
+	dispatch.hook('S_TRADE_BROKER_DEAL_INFO_UPDATE', 1, event => {
 		if(currentDeal) {
 			if(event.buyerStage == 2 && event.sellerStage < 2) {
 				let deal = currentDeal
 
 				// This abandoned timeout is not a good design, but it's unlikely that it will cause any issues
 				setTimeout(() => {
-					if(currentDeal && deal.playerId == currentDeal.playerId && deal.listing == currentDeal.listing && Number(event.price) >= Number(currentDeal.offeredPrice)) {
-						mod.send('C_TRADE_BROKER_DEAL_CONFIRM', 1, {
+					if(currentDeal && deal.playerId == currentDeal.playerId && deal.listing == currentDeal.listing && BigInt(event.price) >= BigInt(currentDeal.offeredPrice)) {
+						dispatch.toServer('C_TRADE_BROKER_DEAL_CONFIRM', 1, {
 							listing: currentDeal.listing,
 							stage: event.sellerStage + 1
 						})
@@ -75,7 +80,7 @@ module.exports = function AutoNegotiate(mod) {
 		}
 	})
 
-	mod.hook('S_REQUEST_CONTRACT', 1, event => {
+	dispatch.hook('S_REQUEST_CONTRACT', 1, event => {
 		if(currentDeal && (event.type == TYPE_NEGOTIATION_PENDING || event.type == TYPE_NEGOTIATION)) {
 			currentContract = event
 			setEndTimeout()
@@ -83,16 +88,16 @@ module.exports = function AutoNegotiate(mod) {
 		}
 	})
 
-	mod.hook('S_REPLY_REQUEST_CONTRACT', 1, replyOrAccept)
-	mod.hook('S_ACCEPT_CONTRACT', 1, replyOrAccept)
+	dispatch.hook('S_REPLY_REQUEST_CONTRACT', 1, replyOrAccept)
+	dispatch.hook('S_ACCEPT_CONTRACT', 1, replyOrAccept)
 
-	mod.hook('S_REJECT_CONTRACT', 1, event => {
+	dispatch.hook('S_REJECT_CONTRACT', 1, event => {
 		if(currentDeal && (event.type == TYPE_NEGOTIATION_PENDING || event.type == TYPE_NEGOTIATION)) {
 			command.message(currentDeal.name + ' aborted negotiation.')
 
 			// Fix listing becoming un-negotiable (server-side) if the other user aborts the initial dialog
 			if(event.type == TYPE_NEGOTIATION_PENDING)
-				mod.send('C_TRADE_BROKER_REJECT_SUGGEST', 1, {
+				dispatch.toServer('C_TRADE_BROKER_REJECT_SUGGEST', 1, {
 					playerId: currentDeal.playerId,
 					listing: currentDeal.listing
 				})
@@ -103,7 +108,7 @@ module.exports = function AutoNegotiate(mod) {
 		}
 	})
 
-	mod.hook('S_CANCEL_CONTRACT', 1, event => {
+	dispatch.hook('S_CANCEL_CONTRACT', 1, event => {
 		if(currentDeal && (event.type == TYPE_NEGOTIATION_PENDING || event.type == TYPE_NEGOTIATION)) {
 			currentContract = null
 			endDeal()
@@ -111,23 +116,28 @@ module.exports = function AutoNegotiate(mod) {
 		}
 	})
 
-	mod.hook('S_SYSTEM_MESSAGE', 1, event => {
+	dispatch.hook('S_SYSTEM_MESSAGE', 1, event => {
 		if(currentDeal) {
 			try {
-				const msg = mod.parseSystemMessage(event.message)
+				const msg = dispatch.parseSystemMessage(event.message)
 
 				//if(msg.id === 'SMT_MEDIATE_DISCONNECT_CANCEL_OFFER_BY_ME' || msg.id === 'SMT_MEDIATE_TRADE_CANCEL_ME') return false
-				if(msg.id === 'SMT_MEDIATE_TRADE_CANCEL_OPPONENT') {
+				if(msg.id === 'SMT_MEDIATE_TRADE_CANCEL_OPPONENT')
+				{
 					command.message(currentDeal.name + ' cancelled negotiation.')
 					return false
 				}
-			}
+				else if(msg.id === 'SMT_MEDIATE_SUCCESS_SELL')
+				{
+					command.message('Deal successful')
+				}
+		}
 			catch(e) {}
 		}
 	})
 
 	if(UNATTENDED_MANUAL_NEGOTIATE)
-		mod.hook('C_REQUEST_CONTRACT', 1, event => {
+		dispatch.hook('C_REQUEST_CONTRACT', 1, event => {
 			if(event.type == 35) {
 				let deal = recentDeals[event.data.readUInt32LE(0) + '-' + event.data.readUInt32LE(4)]
 
@@ -135,7 +145,7 @@ module.exports = function AutoNegotiate(mod) {
 					currentDeal = deal
 					command.message('Handling negotiation with ' + currentDeal.name + '...')
 					process.nextTick(() => {
-						mod.send('S_REPLY_REQUEST_CONTRACT', 1, { type: event.type })
+						dispatch.toClient('S_REPLY_REQUEST_CONTRACT', 1, { type: event.type })
 					})
 				}
 			}
@@ -148,10 +158,11 @@ module.exports = function AutoNegotiate(mod) {
 		}
 	}
 
-	// 1 = Auto Accept, 0 = No Action, -1 = Auto-decline
+	// 1 = Auto Accept, 0 = No Action, -1 = Auto-decline rng_yes_or_no(AUTO_REJECT_CHANCE)
 	function comparePrice(offer, seller) {
-		if(AUTO_ACCEPT_THRESHOLD && Number(offer) >= Number(seller) * AUTO_ACCEPT_THRESHOLD) return 1
-		if(AUTO_REJECT_THRESHOLD && Number(offer) < Number(seller) * AUTO_REJECT_THRESHOLD) return -1
+		if(AUTO_REJECT_THRESHOLD && rng_yes_or_no(AUTO_REJECT_CHANCE) && BigInt(offer) < (BigInt(seller) * BigInt(AUTO_REJECT_THRESHOLD)) / 100n) return -1
+		if(AUTO_REJECT_TROLLS	 && rng_yes_or_no(AUTO_REJECT_CHANCE) && BigInt(offer) > (BigInt(seller) * BigInt(AUTO_REJECT_TROLLS)) / 100n) return -1
+		if(AUTO_ACCEPT_THRESHOLD && BigInt(offer) >= (BigInt(seller) * BigInt(AUTO_ACCEPT_THRESHOLD)) / 100n) return 1
 		return 0
 	}
 
@@ -173,7 +184,7 @@ module.exports = function AutoNegotiate(mod) {
 			data.writeUInt32LE(currentDeal.playerId, 0)
 			data.writeUInt32LE(currentDeal.listing, 4)
 
-			mod.send('C_REQUEST_CONTRACT', 1, {
+			dispatch.toServer('C_REQUEST_CONTRACT', 1, {
 				type: 35,
 				unk2: 0,
 				unk3: 0,
@@ -183,7 +194,7 @@ module.exports = function AutoNegotiate(mod) {
 			})
 		}
 		else {
-			mod.send('C_TRADE_BROKER_REJECT_SUGGEST', 1, {
+			dispatch.toServer('C_TRADE_BROKER_REJECT_SUGGEST', 1, {
 				playerId: currentDeal.playerId,
 				listing: currentDeal.listing
 			})
@@ -198,7 +209,8 @@ module.exports = function AutoNegotiate(mod) {
 
 	function setEndTimeout() {
 		clearTimeout(cancelTimeout)
-		cancelTimeout = setTimeout(endDeal, pendingDeals.length ? 15000 : 30000)
+		cancelTimeout = setTimeout(endDeal, pendingDeals.length ? rng(ACTION_DELAY_TIMEOUT_SHORT_MS) : rng(ACTION_DELAY_TIMEOUT_MS))
+						//setTimeout(endDeal, pendingDeals.length ? 15000 : 30000)
 	}
 
 	function endDeal() {
@@ -207,7 +219,7 @@ module.exports = function AutoNegotiate(mod) {
 		if(currentContract) {
 			command.message('Negotiation timed out.')
 
-			mod.send('C_CANCEL_CONTRACT', 1, {
+			dispatch.toServer('C_CANCEL_CONTRACT', 1, {
 				type: currentContract.type,
 				id: currentContract.id
 			})
@@ -233,5 +245,9 @@ module.exports = function AutoNegotiate(mod) {
 
 	function rng([min, max]) {
 		return min + Math.floor(Math.random() * (max - min + 1))
+	}
+	
+	function rng_yes_or_no(chance) {
+		return chance > rng([0,100]) ? true : false
 	}
 }
