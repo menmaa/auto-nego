@@ -25,9 +25,23 @@ module.exports = function AutoNegotiate(dispatch) {
 		currentDeal = null,
 		currentContract = null,
 		actionTimeout = null,
-		cancelTimeout = null
+		cancelTimeout = null,
+		lastSuggest = {}
 
+	command.add('nretry', () => {
+		if(Object.keys(lastSuggest).length)
+		{
+			command.message("Retrying last deal suggestion...")
+			mod.toClient('S_TRADE_BROKER_DEAL_SUGGESTED', 1, lastSuggest)
+		}
+		else
+		{
+			command.message("No deal to retry")
+		}
+	})
+			
 	dispatch.hook('S_TRADE_BROKER_DEAL_SUGGESTED', 1, {order: 100, filter: {fake: null}}, event => {
+		lastSuggest = event
 		// Remove old deals that haven't been processed yet
 		for(let i = 0; i < pendingDeals.length; i++) {
 			let deal = pendingDeals[i]
