@@ -32,7 +32,7 @@ module.exports = function AutoNegotiate(dispatch) {
 		if(Object.keys(lastSuggest).length)
 		{
 			command.message("Retrying last deal suggestion...")
-			mod.toClient('S_TRADE_BROKER_DEAL_SUGGESTED', 1, lastSuggest)
+			dispatch.toClient('S_TRADE_BROKER_DEAL_SUGGESTED', 1, lastSuggest)
 		}
 		else
 		{
