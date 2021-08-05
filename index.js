@@ -94,7 +94,7 @@ module.exports = function AutoNegotiate(dispatch) {
 		}
 	})
 
-	dispatch.hook('S_REQUEST_CONTRACT', 1, event => {
+	dispatch.hook('S_REQUEST_CONTRACT', 2, event => {
 		if(currentDeal && (event.type == TYPE_NEGOTIATION_PENDING || event.type == TYPE_NEGOTIATION)) {
 			currentContract = event
 			setEndTimeout()

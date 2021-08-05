@@ -1,13 +1,13 @@
 {
 	"disableAutoUpdate": false,
 	"name": "auto-nego",
-	"author": "Owyn",
+	"author": "Owyn / Menma",
 	"description": "Automatically accepts or declines Trade Broker negotiations.",
 	"options": {
 		"niceName": "Auto-Nego",
 		"guiName": "Auto Nego"
 	},
 	"conflicts": ["auto-negotiate", "auto-negotiate-master", "negotiator", "negotiator-master"],
-	"servers": ["https://raw.githubusercontent.com/Owyn/auto-nego/master/"],
-	"supportUrl": "https://github.com/Owyn/auto-nego/issues"
+	"servers": ["https://raw.githubusercontent.com/menmaa/auto-nego/master/"],
+	"supportUrl": "https://github.com/menmaa/auto-nego/issues"
 }
